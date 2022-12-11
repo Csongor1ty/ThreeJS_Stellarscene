@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="hu">
+
+<head>
+    <meta charset=utf-8>
+    <link rel="stylesheet" href="style.css">
+    <link rel="shortcut icon" href="galaxy.ico" type="image/x-icon">
+    <title>ALEV84 Naprendszer</title>
+</head>
+
+<body>
+<!--control menu a kozep es koveto nezet kozott-->
+<div id="creatormenu">
+    <p>Tarjányi Csongor</p>
+    <p>ALEV84</p>
+    <p>SZTE TTIK PTI Levelező</p>
+    <p>2022 ősz</p>
+</div>
+<div id="control-menu">
+    <h2>Funkciók:</h2>
+    <p>i - szöveges információk ki/bekapcsolása</p>
+    <p>o - Nap megjelenítése/eltűntetése</p>
+    <p>1 - Yavin</p>
+    <p>2 - Ambient</p>
+    <p>3 - Black Hole Sun</p>
+    <p>Nyilak - X-wing mozgatása</p>
+    <label>
+        <input type="radio" name="control-mode" value="centered" checked>
+        Középnézet
+    </label>
+    <label>
+        <input type="radio" name="control-mode" value="orbit">
+        Orbit
+    </label>
+    <br>
+    <label>
+        <input type="radio" name="orbit-target" value="sun" checked>
+        Nap
+    </label>
+    <label>
+        <input type="radio" name="orbit-target" value="earth">
+        Föld
+    </label>
+    <label>
+        <input type="radio" name="orbit-target" value="moon">
+        Hold
+    </label>
+    <label>
+        <input type="radio" name="orbit-target" value="orion">
+        Orion
+    </label>
+</div>
+
+<script async src="./dist/es-module-shims.js"></script>
+<script type="importmap">
+{
+    "imports": {
+        "three": "./js-r143/build/three.module.js",
+        "OrbitControls": "./js-r143/examples/jsm/controls/OrbitControls.js",
+        "OBJLoader": "./js-r143/examples/jsm/loaders/OBJLoader.js",
+        "MTLLoader": "./js-r143/examples/jsm/loaders/MTLLoader.js",
+        "tween": "./js-r143/examples/jsm/libs/tween.module.min.js"
+    }
+}
+
+
+</script>
+<script type="module">
+    import * as THREE from 'three';
+    import {OrbitControls} from 'OrbitControls';
+    import {TWEEN} from 'tween';
+    import { OBJLoader } from 'OBJLoader';
+    import { MTLLoader } from 'MTLLoader';
+
+
+    // BLENDER objektum betöltése
+    let meshLoaded;
+
+    loader_obj_mtl();
+    function loader_obj_mtl() {
+        let OBJFile = 'blendermodels/xwing.obj';
+        let MTLFile = 'blendermodels/xwing.mtl';
+
+        new MTLLoader()
+            .load(MTLFile, function (materials) {
+                materials.preload();
+                new OBJLoader()
+                    .setMaterials(materials)
+                    .load(OBJFile, function (object) {
+                        meshLoaded = object;
+                        meshLoaded.scale.set(0.04, 0.04, 0.04);
+                        meshLoaded.position.set(0, 0, 15);
+                        console.log(object);
+
+                        object.traverse(function (child) {
+                            if (child instanceof THREE.Mesh) {
+                                child.scale.set(4, 4, 4);
+                                console.log(child.material);
+                            }
+                        });
+                        init();
+                    });
+            });
+    }
+
+
+    // Globális változók
+    let WIDTH, HEIGHT, aspectRatio;
+    let renderer;
+    let scene, camera;
+    let ctrl;
+    let napMesh, foldMesh, holdMesh, foldOrbitMesh, holdOrbitMesh;
+    let earthOrbitAngle, holdOrbitAngle,
+        earthOrbitFocalDistance, holdOrbitFocalDistance;
+    let earthOrbitRadius, holdOrbitRadius;
+    let naprendszerGroup;
+    let orbitControls;
+    let orionNasa, shipBodyMesh, shipEngineMesh, shipCockpitMesh, shipFrontMesh, collectorMesh;
+    let collectorMesh2, collectorMesh3, collectorMesh4;
+
+    // Keringéshez szükséges controller fv.
+    let solarSystemController = function () {
+        this.earthOrbitSpeed = 0.1;
+        this.moonOrbitSpeed = 0.4;
+        this.earthOrbitRatio = 0.5;
+    };
+
+
+    let geometry, mesh; //háttér változói
+
+
+    //radio gombok mentése változóba
+
+    const centeredRadio = document.querySelector('input[name="control-mode"][value="centered"]');
+    const orbitRadio = document.querySelector('input[name="control-mode"][value="orbit"]');
+
+    let sunRadio = document.querySelector('input[name="orbit-target"][value="sun"]');
+    let earthRadio = document.querySelector('input[name="orbit-target"][value="earth"]');
+    let moonRadio = document.querySelector('input[name="orbit-target"][value="moon"]');
+    let orionRadio = document.querySelector('input[name="orbit-target"][value="orion"]');
+    // Csak egyszeri állókép rajzolása
+    // render();
+
+    function init() {
+
+        // Böngésző ablakméret lekérése és méretarány számítása
+        HEIGHT = window.innerHeight;
+        WIDTH = window.innerWidth;
+        aspectRatio = WIDTH / HEIGHT;
+        earthOrbitAngle = 0.0;
+        holdOrbitAngle = 0.0;
+
+        earthOrbitRadius = 50.0;
+        holdOrbitRadius = 8.0;
+
+        document.body.addEventListener('keydown', keyPress => {
+            switch(keyPress.key.toLowerCase()){
+                case "i":
+                    let hideText = document.querySelector("#control-menu");
+                    let hideInfo = document.querySelector("#creatormenu");
+                    hideText.hidden = !hideText.hidden;
+                    hideInfo.hidden = !hideInfo.hidden ;
+                    break;
+                case "o":
+                    napMesh.visible = !napMesh.visible;
+                    break;
+                case "arrowup":
+                    meshLoaded.position.z += 0.06;
+                break;
+                case "arrowdown":
+                    meshLoaded.position.z -= 0.06;
+                break;
+                case "arrowleft":
+                    meshLoaded.rotation.z -= 0.06;
+                    break;
+                case "arrowright":
+                    meshLoaded.rotation.z += 0.06;
+                    break;
+                case "1" :
+                    if(pointLight.parent===scene){
+                        scene.remove(pointLight);
+                    }else{
+                        scene.add(pointLight);
+                    }
+                    break;
+                case "2" :
+                    if(ambientLight.parent===scene){
+                        scene.remove(ambientLight);
+                    }else{
+                        scene.add(ambientLight);
+                    }
+                    break;
+                case "3" :
+                    if(spotLight.parent===scene){
+                        scene.remove(spotLight);
+                    }else{
+                        scene.add(spotLight);
+                    }
+                    break;
+            }
+        })
+
+        // Renderer létrehozása és DOM-hoz adása
+        renderer = new THREE.WebGLRenderer({antialias: true});
+        renderer.setSize(WIDTH, HEIGHT);
+        renderer.setClearColor(0x000000);
+        document.body.appendChild(renderer.domElement);
+
+        // Színtér létrehozása
+        scene = new THREE.Scene();
+
+        // KAMERA létrehozása és vetítési paramétereinek beállítása
+        camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000);
+        camera.position.z = 30;
+        camera.lookAt( scene.position.x, scene.position.y, scene.position.z );
+        // Orbitcontrols irányításbeállítás, jobbklikkes pan tiltása
+        orbitControls = new OrbitControls(camera, renderer.domElement);
+        orbitControls.enablePan = false;
+        // BLENDER objektum hozzáadása a színtérhez
+        scene.add( meshLoaded );
+        //FÉNYEK
+        let pointLight = new THREE.PointLight(0xffffff);
+        pointLight.position.set(0, 2, 15);
+
+        let ambientLight = new THREE.AmbientLight(0xffcccc);
+        ambientLight.position.set(0, 0, 0);
+        scene.add(ambientLight);
+
+        let spotLight = new THREE.SpotLight(0xffffff, 10);
+        spotLight.position.set(0,0,0);
+        spotLight.castShadow = true;
+        spotLight.angle = Math.PI;
+        spotLight.penumbra = 1;
+
+        //Módselection -> naprendszer nézet vagy objektum orbitális nézet
+        sunRadio.disabled = true;
+        earthRadio.disabled = true;
+        moonRadio.disabled = true;
+        orionRadio.disabled = true;
+
+        centeredRadio.addEventListener('change', () => {
+
+            sunRadio.disabled = true;
+            sunRadio.checked = true;
+            earthRadio.disabled = true;
+            moonRadio.disabled = true;
+            orionRadio.disabled = true;
+            orbitControls.maxDistance = 400;
+            camera.position.set(0, 0, 30);
+            camera.lookAt(scene.position);
+            orbitControls.target = scene.position;
+            orbitControls.update();
+
+        });
+        orbitRadio.addEventListener('change', () => {
+            orbitControls.maxDistance = 50;
+            sunRadio.disabled = false;
+            sunRadio.checked = true;
+            earthRadio.disabled = false;
+            moonRadio.disabled = false;
+            orionRadio.disabled = false;
+        });
+
+        // 3D felszínháló létrehozása: geometria és anyag összerendelése
+        // textúrák: https://www.solarsystemscope.com/textures/
+        let napTexture = new THREE.TextureLoader().load('textures/sun.jpg');
+        let foldTexture = new THREE.TextureLoader().load('textures/earth.jpg');
+        let holdTexture = new THREE.TextureLoader().load('textures/moon.jpg');
+        let solarTexture = new THREE.TextureLoader().load('textures/solar.jpg');
+        let solarFrontTexture = new THREE.TextureLoader().load('textures/tip.jpg');
+        let solarBodyTexture = new THREE.TextureLoader().load('textures/body.jpg');
+        let solarEngineTexture = new THREE.TextureLoader().load('textures/rocket.jpg');
+        let backgroundTexture = new THREE.TextureLoader().load('textures/stars.jpg');
+        backgroundTexture.minFilter = THREE.LinearFilter;
+        backgroundTexture.magFilter = THREE.LinearFilter;
+
+// textúrából material -> világíthatók
+        let napMaterial = new THREE.MeshLambertMaterial({map: napTexture});
+        let foldMaterial = new THREE.MeshStandardMaterial({map: foldTexture});
+        foldMaterial.receiveShadow = true;
+        let holdMaterial = new THREE.MeshStandardMaterial({map: holdTexture});
+        holdMaterial.receiveShadow = true;
+        let backgroundMaterial = new THREE.MeshStandardMaterial({map: backgroundTexture});
+
+// NAP
+        napMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(8, 50, 30),
+            napMaterial
+        );
+        napMesh.rotation.z = 0.2;
+        napMesh.position.set(0, 0, 0);
+// FOLD
+        foldMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(1, 32, 32), foldMaterial
+        );
+        foldMesh.rotation.z += -23.5 * (Math.PI / 180);
+        foldMesh.material.receiveShadow = true;
+// HOLD
+        holdMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(1, 32, 32), holdMaterial
+        );
+        holdMesh.scale.set(0.2, 0.2, 0.2);
+        holdMesh.castShadow = true;
+
+//ORION Muhold
+
+        let bodyGeometry = new THREE.CylinderGeometry(0.7, 0.7, 0.2, 32);
+        let bodyMaterial = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            emissive: 0x222222,
+            emissiveIntensity: 0.5
+        });
+        bodyMaterial.receiveShadow = true;
+        shipBodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial);
+
+
+        let engineGeometry = new THREE.ConeGeometry(0.2, 1, 32);
+        let engineMaterial = new THREE.MeshStandardMaterial({map: solarEngineTexture});
+        engineMaterial.receiveShadow = true;
+        shipEngineMesh = new THREE.Mesh(engineGeometry, engineMaterial);
+
+
+        let frontGeometry = new THREE.CylinderGeometry(0.3, 0.7, 0.7, 32);
+        let frontMaterial = new THREE.MeshStandardMaterial({map: solarFrontTexture});
+        frontMaterial.receiveShadow = true;
+        shipFrontMesh = new THREE.Mesh(frontGeometry, frontMaterial);
+
+        let cockpitGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.5, 32);
+        let cockpitMaterial = new THREE.MeshStandardMaterial({map: solarBodyTexture});
+        cockpitMaterial.receiveShadow = true;
+        shipCockpitMesh = new THREE.Mesh(cockpitGeometry, cockpitMaterial);
+
+        let collectorGeometry = new THREE.BoxGeometry(1, 0.01, 0.3);
+        let collectorMaterial = new THREE.MeshStandardMaterial({map: solarTexture});
+        collectorMesh = new THREE.Mesh(collectorGeometry, collectorMaterial);
+        collectorMesh.rotation.y = 45;
+
+        collectorMesh2 = collectorMesh.clone();
+        collectorMesh2.rotation.y = -45;
+        collectorMesh3 = collectorMesh.clone();
+        collectorMesh3.rotation.y = 45;
+        collectorMesh4 = collectorMesh.clone();
+        collectorMesh4.rotation.y = -45;
+
+        shipBodyMesh.position.set(0,0.35,0);
+        shipEngineMesh.position.set(0,0.1,0);
+        shipFrontMesh.position.set(0,0.8,0);
+        shipCockpitMesh.position.set(0,0,0);
+        collectorMesh.position.set(-0.45,-0.2,0.7);
+        collectorMesh2.position.set(-0.45,-0.2,-0.7);
+        collectorMesh3.position.set(0.45,-0.2,-0.7);
+        collectorMesh4.position.set(0.45,-0.2,0.7);
+
+        orionNasa = new THREE.Group();
+
+        orionNasa.add(shipBodyMesh);
+        orionNasa.add(shipFrontMesh);
+        orionNasa.add(shipEngineMesh);
+        orionNasa.add(shipCockpitMesh);
+        orionNasa.add(collectorMesh);
+        orionNasa.add(collectorMesh2);
+        orionNasa.add(collectorMesh3);
+        orionNasa.add(collectorMesh4);
+
+        orionNasa.rotation.z = 20;
+
+        orionNasa.scale.set(0.2, 0.2, 0.2);
+
+        //hatter
+        geometry = new THREE.SphereGeometry(10, 10, 10);
+        mesh = new THREE.Mesh(geometry, backgroundMaterial);
+        mesh.scale.set(60, 60, 60);
+        mesh.material.side = THREE.BackSide;
+
+        /** ORBITMESH*/
+        let earthOrbitMaterial = new THREE.MeshBasicMaterial( { color: 0x808080, transparent: true, opacity: 0.2, side: THREE.DoubleSide } );
+        let earthOrbitGeometry = new THREE.CircleGeometry( earthOrbitRadius, 32 );
+        foldOrbitMesh = new THREE.Mesh( earthOrbitGeometry, earthOrbitMaterial );
+        foldOrbitMesh.rotation.x = 0.5 * Math.PI;
+
+        let holdOrbitMaterial = new THREE.MeshBasicMaterial( { color: 0x808080, transparent: true, opacity: 0.2, side: THREE.DoubleSide } );
+        let holdOrbitGeometry = new THREE.CircleGeometry( holdOrbitRadius, 32 );
+        holdOrbitMesh = new THREE.Mesh( holdOrbitGeometry, holdOrbitMaterial );
+        holdOrbitMesh.rotation.x = -0.5 * Math.PI;
+
+        //GROUPOK
+
+        naprendszerGroup = new THREE.Object3D();
+        naprendszerGroup.add(napMesh);
+        naprendszerGroup.add(foldMesh);
+        naprendszerGroup.add(holdMesh);
+        naprendszerGroup.add(orionNasa);
+
+        /** ORBITMESH*/
+        //naprendszerGroup.add( foldOrbitMesh );
+        //naprendszerGroup.add( holdOrbitMesh );
+
+// Elemek hozzaadasa a scene-hez
+
+        scene.add(naprendszerGroup);
+        scene.add(mesh);
+
+        ctrl = new solarSystemController();
+
+        // let axesHelper = new THREE.AxesHelper( 10 );
+        // scene.add( axesHelper );
+
+        // Az ablak későbbi átméretezése esetén visszahívható függvény megadása
+        window.addEventListener('resize', handleWindowResize, false);
+// Animáció indítása
+        animate();
+    }
+    function animate() {
+        //TWEEN animáció az Orion hajtóműelhagyására
+
+        function animateCollector(collectorMesh) {
+            let tween = new TWEEN.Tween(collectorMesh.position)
+                .to({ y: collectorMesh.position.y - 2 }, 4)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .yoyo(true)
+                .repeat(Infinity)
+                .start();
+        }
+
+        // Újabb képkocka rajzolásának kérése.
+        // Maximálisan 60 FPS-t biztosít a rendszer.
+        napMesh.rotation.y += 0.001;
+        foldMesh.rotation.y += 0.01;
+        holdMesh.rotation.y += 0.005;
+        orionNasa.rotation.x += 0.001;
+
+        //Keringési pályák számítása
+
+        earthOrbitFocalDistance = Math.sqrt( earthOrbitRadius * earthOrbitRadius - earthOrbitRadius * earthOrbitRadius * ctrl.earthOrbitRatio * ctrl.earthOrbitRatio ) / 2.0;
+        foldOrbitMesh.position.z = earthOrbitFocalDistance;
+        foldOrbitMesh.scale.x = ctrl.earthOrbitRatio;
+
+        earthOrbitAngle -= ctrl.earthOrbitSpeed;
+        let radians = earthOrbitAngle * Math.PI / 180;
+        foldMesh.position.x = Math.cos( radians ) * earthOrbitRadius * ctrl.earthOrbitRatio;
+        foldMesh.position.z = Math.sin( radians ) * earthOrbitRadius + earthOrbitFocalDistance;
+
+        holdOrbitAngle -= ctrl.moonOrbitSpeed;
+        let moonRadians = holdOrbitAngle * Math.PI / 180;
+        holdOrbitFocalDistance = Math.sqrt(holdOrbitRadius * holdOrbitRadius - holdOrbitRadius * holdOrbitRadius * ctrl.earthOrbitRatio * ctrl.earthOrbitRatio) / 2.0;
+        holdOrbitMesh.position.x = Math.cos(moonRadians) * holdOrbitRadius * ctrl.earthOrbitRatio + foldMesh.position.x;
+        holdOrbitMesh.position.z = Math.sin(moonRadians) * holdOrbitRadius + holdOrbitFocalDistance + foldMesh.position.z;
+        holdMesh.position.x = holdOrbitMesh.position.x;
+        holdMesh.position.z = holdOrbitMesh.position.z;
+
+        orionNasa.position.x = foldMesh.position.x + 2.5;
+        orionNasa.position.z = foldMesh.position.z;
+
+        //objektumok helyzetének ellenőrzése
+        //console.log(`x: ${holdMesh.position.x}, y: ${holdMesh.position.y}, z: ${holdMesh.position.z}`);
+        //orbitcontrols + kamera ugrás a radiogomboknak megfelelően
+        if (earthRadio.checked) {
+            camera.position.x = Math.cos(radians) * earthOrbitRadius * ctrl.earthOrbitRatio;
+            camera.position.z = (Math.sin(radians) * earthOrbitRadius + earthOrbitFocalDistance) - 6;
+            camera.lookAt(foldMesh.position);
+            orbitControls.target = foldMesh.position;
+        }else if(sunRadio.checked){
+            camera.lookAt(napMesh.position);
+            orbitControls.target = napMesh.position;
+        }else if (moonRadio.checked) {
+            camera.position.x = foldMesh.position.x;
+            camera.position.z = foldMesh.position.z;
+            camera.lookAt(holdMesh.position.x + 1, holdMesh.position.y, holdMesh.position.z - 4);
+            orbitControls.target = holdMesh.position;
+        }else if (orionRadio.checked){
+            camera.rotation.x += 0.1;
+            camera.position.x = foldMesh.position.x + 3;
+            camera.position.z =  foldMesh.position.z + 2;
+            camera.lookAt(foldMesh.position.x + 1, foldMesh.position.y, foldMesh.position.z - 4);
+        }
+
+        animateCollector(shipEngineMesh);
+        TWEEN.update();
+
+        orbitControls.update;
+        // Új képkocka rajzolása
+        render();
+        requestAnimationFrame(animate);
+    }
+
+
+    function render() {
+        // 3D -> 2D vetített kép kiszámítása.
+        // scene 3D színtér képe a camera kamera szemszögéből.
+        renderer.shadowMap.enabled = true;
+        renderer.render(scene, camera);
+    }
+
+    function handleWindowResize() {
+        // Az ablak átméretezése esetén a kamera vetítési paraméterek újraszámolása
+        HEIGHT = window.innerHeight;
+        WIDTH = window.innerWidth;
+        // A konzolra kiírt szöveget a böngészpben is megnézhetjük:
+        // CTRL + Shift + i
+        // Console fülre kattintás
+        // A hibaüzenetek is itt láthatók (ha vannak)
+        console.log('WIDTH=' + WIDTH + '; HEIGHT=' + HEIGHT);
+        renderer.setSize(WIDTH, HEIGHT);
+        aspectRatio = WIDTH / HEIGHT;
+        camera.aspect = aspectRatio;
+        camera.updateProjectionMatrix();
+
+        render();
+    }
+
+</script>
+
+
+</body>
+</html>
